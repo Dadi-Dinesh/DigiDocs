@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { date, send, type Organization } from './api';
+import { date, send, type Organization, type User } from './api';
 import { permitted, useNav, useSession, useUser, type Routes } from './navigation';
 import { Button, c, confirm, Field, Icon, s, Screen, Status, useLoad, useMutation } from './ui';
 
@@ -67,16 +67,39 @@ export function SetupScreen({ route }: NativeStackScreenProps<Routes, 'Setup'>) 
   </Screen>;
 }
 export function ProfileScreen() {
-  const user = useUser();
+  const sessionUser = useUser();
+  const profile = useLoad<User>('/auth/me');
+  const user = profile.data ?? sessionUser;
   const nav = useNav();
   const org = useLoad<Organization>('/organization');
   const { signOut } = useSession();
   const mutation = useMutation();
-  return <Screen title="Profile" refresh={org.reload}>
-    <View style={s.panel}><Icon name="person-circle-outline" color="#A5B4FC" size={42} />
-      <Text style={s.section}>{user.fullName}</Text><Text style={s.muted}>{user.employeeId} · {user.designation}</Text>
-      <Text style={s.text}>{user.email}</Text><Text style={s.muted}>Joined {date(user.joiningDate)}</Text>
+  const details = [
+    { label: 'Employee ID', value: user.employeeId },
+    { label: 'Email', value: user.email },
+    { label: 'Department', value: user.departmentName ?? 'Unassigned' },
+    { label: 'Role', value: user.roleName ?? 'Unassigned' },
+  ];
+  return <Screen title="Profile" refresh={() => { profile.reload(); org.reload(); }}>
+    <View style={s.panel}>
+      <View style={s.row}>
+        <Icon name="person-circle-outline" color="#A5B4FC" size={42} />
+        <View style={s.fill}>
+          <Text style={s.section}>{user.fullName}</Text>
+          <Text style={s.muted}>{user.designation}</Text>
+        </View>
+      </View>
+      {details.map(({ label, value }) => <View key={label}>
+        <Text style={s.label}>{label}</Text>
+        <Text selectable style={s.text}>{value}</Text>
+      </View>)}
+      <View>
+        <Text style={s.label}>Account status</Text>
+        <Text style={[s.badge, { color: user.active ? '#86EFAC' : c.red }]}>{user.active ? 'Active' : 'Inactive'}</Text>
+      </View>
+      <Text style={s.muted}>Joined {date(user.joiningDate)}</Text>
     </View>
+    <Status error={profile.error} retry={profile.reload} />
     <Status {...org} retry={org.reload} />
     {org.data && <View style={s.panel}>
       <Text style={s.section}>{org.data.name}</Text><Text selectable style={s.mono}>{org.data.slug}</Text>
@@ -89,8 +112,8 @@ export function ProfileScreen() {
     </>}
     <Button secondary title="Settings" icon="settings-outline" onPress={() => nav.navigate('Settings')} />
     {!!mutation.error && <Text style={s.error}>{mutation.error}</Text>}
-    <Button danger title={mutation.busy ? 'Signing out…' : 'Sign out'} disabled={mutation.busy} icon="log-out-outline" onPress={() =>
-      confirm('Sign out?', 'This ends your current DocuVault session.', () => void mutation.run(signOut))} />
+    <Button danger title={mutation.busy ? 'Logging out…' : 'Log out'} disabled={mutation.busy} icon="log-out-outline" onPress={() =>
+      confirm('Log out?', 'This ends your current DocuVault session.', () => void mutation.run(signOut))} />
   </Screen>;
 }
 

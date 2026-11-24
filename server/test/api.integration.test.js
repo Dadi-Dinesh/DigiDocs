@@ -57,6 +57,17 @@ test('DocuVault API against an isolated test database', { skip: !origin }, async
     employeeId, fullName: 'Test Reviewer', email: 'reviewer@example.org', designation: 'Analyst', departmentId: department.id, roleId: role.id, password,
   } });
   const employee = (await request('POST', '/auth/login', { data: { slug, employeeId, password } })).token;
+  const profile = await request('GET', '/auth/me', { token: employee });
+  assert.equal(profile.fullName, member.fullName);
+  assert.equal(profile.employeeId, employeeId);
+  assert.equal(profile.email, member.email);
+  assert.equal(profile.departmentName, department.name);
+  assert.equal(profile.roleName, role.name);
+  assert.equal(profile.active, true);
+  assert.equal(Object.hasOwn(profile, 'passwordHash'), false);
+  const adminProfile = await request('GET', '/auth/me', { token: admin });
+  assert.equal(adminProfile.roleName, 'Organization Administrator');
+  assert.equal(adminProfile.departmentName, null);
   const byDepartment = await request('GET', '/employees?q=Finance', { token: admin });
   assert.deepEqual(byDepartment.map(item => item.employeeId), [employeeId]);
   assert.equal(Object.hasOwn(member, 'passwordHash'), false);

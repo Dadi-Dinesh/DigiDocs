@@ -11,7 +11,7 @@ export async function member(tx, id) {
   const user = await tx.employee.findUnique({ where: { id }, omit: { passwordHash: true } });
   if (!user?.active) throw fail(401, 'Your session is no longer active.');
   const role = user.roleId && await tx.role.findFirst({ where: { id: user.roleId, organizationId: user.organizationId } });
-  return { ...user, permissions: role?.permissions ?? [] };
+  return { ...user, permissions: role?.permissions ?? [], roleName: user.admin ? 'Organization Administrator' : role?.name ?? null };
 }
 export async function sessionUser(tx, claims) {
   const session = await tx.session.findUnique({ where: { id: claims.jti } });

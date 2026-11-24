@@ -63,7 +63,13 @@ export async function authenticate(req, _res, next) {
   req.user = await sessionUser(db, req.claims);
   next();
 }
-auth.get('/me', authenticate, endpoint((tx, req) => req.user));
+auth.get('/me', authenticate, endpoint(async (tx, req) => {
+  const { departmentId, organizationId } = req.user;
+  const department = departmentId ? await tx.department.findFirst({
+    where: { id: departmentId, organizationId }, select: { name: true },
+  }) : null;
+  return { ...req.user, departmentName: department?.name ?? null };
+}));
 auth.post('/logout', authenticate, endpoint((tx, req) => tx.session.deleteMany({ where: { id: req.claims.jti } })));
 auth.patch('/password', authenticate, endpoint(async (tx, req) => {
   const input = z.object({ current: existingPassword, replacement: password }).parse(req.body);

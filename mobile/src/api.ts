@@ -58,7 +58,7 @@ export const actionLabel: Record<typeof permissions[number], string> = {
   view: 'View', download: 'Download', edit: 'Edit', delete: 'Delete',
   manageAccess: 'Manage Access', upload: 'Upload', manageEmployees: 'Manage Employees', audit: 'View Audit Logs',
 };
-export type User = Employee & { permissions: string[] };
+export type User = Employee & { permissions: string[]; roleName: string | null; departmentName: string | null };
 export type Organization = { id: string; name: string; slug: string; description: string };
 export type Named = { id: string; name: string };
 export type Role = Named & { permissions: string[] };
