@@ -10,13 +10,23 @@ export function HomeScreen({ openUpload }: { openUpload: () => void }) {
   const nav = useNav();
   const feed = useLoad<Dashboard>('/dashboard');
   const org = useLoad<Organization>('/organization');
-  const stats: { label: string; key: keyof Pick<Dashboard, 'total' | 'mine' | 'shared' | 'confidential' | 'pending'>; icon: IconName; onPress: () => void }[] = [
-    { label: 'Total documents', key: 'total', icon: 'documents-outline', onPress: () => nav.navigate('List', { mode: 'all' }) },
-    { label: 'My uploads', key: 'mine', icon: 'cloud-upload-outline', onPress: () => nav.navigate('List', { mode: 'mine' }) },
-    { label: 'Shared with me', key: 'shared', icon: 'people-outline', onPress: () => nav.navigate('List', { mode: 'shared' }) },
-    { label: 'Confidential or restricted', key: 'confidential', icon: 'lock-closed-outline', onPress: () => nav.navigate('List', { mode: 'all', sensitive: true }) },
-    { label: 'Pending requests', key: 'pending', icon: 'time-outline', onPress: () => nav.navigate('Requests') },
-  ];
+  const dashboard = feed.data;
+  const latest = dashboard?.activity[0];
+  const stats: { label: string; value: number | string; detail?: string; icon: IconName; onPress?: () => void }[] = dashboard ? [
+    {
+      label: 'Total Documents', value: dashboard.organizationTotal ?? '—', icon: 'documents-outline',
+      detail: dashboard.organizationTotal === null ? 'Available to administrators' : 'Across your organization',
+    },
+    {
+      label: 'Accessible Documents', value: dashboard.accessible, icon: 'eye-outline',
+      onPress: () => nav.navigate('List', { mode: 'all' }),
+    },
+    { label: 'Uploaded by Me', value: dashboard.uploadedByMe, icon: 'cloud-upload-outline' },
+    {
+      label: 'Recent Activity', value: latest ? eventLabel(latest.action) : 'No activity yet',
+      detail: latest ? date(latest.timestamp) : undefined, icon: 'pulse-outline',
+    },
+  ] : [];
   return <Screen refresh={() => { feed.reload(); org.reload(); }}>
     <View style={[s.panel, { padding: 21, backgroundColor: '#1C254A', borderColor: '#343E72', gap: 6 }]}>
       <Icon name="shield-checkmark-outline" color="#AAB5FF" size={33} />
@@ -24,13 +34,25 @@ export function HomeScreen({ openUpload }: { openUpload: () => void }) {
       <Text style={s.muted}>{org.data?.name ?? 'Your organization’s vault'}</Text>
     </View>
     <Status {...feed} retry={feed.reload} />
-    {feed.data && <View style={s.wrap}>{stats.map(item => <Pressable key={item.key} accessibilityRole="button" onPress={item.onPress} style={[s.panel, { flexGrow: 1, flexBasis: '44%', gap: 5 }]}>
-      <Icon name={item.icon} color="#A5B4FC" size={18} />
-      <Text style={[s.title, { fontSize: 25 }]}>{feed.data?.[item.key]}</Text><Text style={s.muted}>{item.label}</Text>
-    </Pressable>)}</View>}
+    {dashboard && <View style={s.wrap}>{stats.map(item => {
+      const style = [s.panel, { flexGrow: 1, flexBasis: '44%' as const, gap: 5 }];
+      const content = <>
+        <Icon name={item.icon} color="#A5B4FC" size={18} />
+        <Text style={s.muted}>{item.label}</Text>
+        <Text style={[s.section, typeof item.value === 'number' && { fontSize: 25 }]}>{item.value}</Text>
+        {item.detail && <Text style={s.muted}>{item.detail}</Text>}
+      </>;
+      return item.onPress ?
+        <Pressable key={item.label} accessibilityRole="button" onPress={item.onPress} style={style}>{content}</Pressable> :
+        <View key={item.label} style={style}>{content}</View>;
+    })}</View>}
     <Text style={s.section}>Quick actions</Text>
     {permitted(user, 'upload') && <Button title="Upload document" icon="cloud-upload-outline" onPress={openUpload} />}
     <Button secondary title="My documents" icon="folder-outline" onPress={() => nav.navigate('List', { mode: 'mine' })} />
+    {dashboard && <>
+      <Button secondary title={`Confidential or restricted (${dashboard.confidential})`} icon="lock-closed-outline" onPress={() => nav.navigate('List', { mode: 'all', sensitive: true })} />
+      <Button secondary title={`Pending requests (${dashboard.pending})`} icon="time-outline" onPress={() => nav.navigate('Requests')} />
+    </>}
     <Button secondary title="Shared with me" icon="people-outline" onPress={() => nav.navigate('List', { mode: 'shared' })} />
     {permitted(user, 'manageAccess') && <Button secondary title="Manage access" icon="key-outline" onPress={() => nav.navigate('List', { mode: 'manage' })} />}
     {feed.data && <>

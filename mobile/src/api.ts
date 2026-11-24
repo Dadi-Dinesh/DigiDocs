@@ -80,5 +80,16 @@ export type AccessRequest = {
   id: string; documentId: string; status: string; canResolve: boolean; title?: string;
   requester?: Pick<Employee, 'fullName' | 'employeeId'>;
 };
-export type Dashboard = { total: number; mine: number; shared: number; confidential: number; pending: number; recent: Document[]; activity: Audit[] };
+export type Dashboard = {
+  total: number;
+  organizationTotal: number | null;
+  accessible: number;
+  uploadedByMe: number;
+  mine: number;
+  shared: number;
+  confidential: number;
+  pending: number;
+  recent: Document[];
+  activity: Audit[];
+};
 export const date = (value: string) => new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });

@@ -76,6 +76,19 @@ test('DocuVault API against an isolated test database', { skip: !origin }, async
   assert.deepEqual(await request('GET', '/documents', { token: employee }), []);
   await request('GET', path, { token: employee, status: 403 });
   await request('GET', path, { token: outsider, status: 404 });
+  const adminDashboard = await request('GET', '/dashboard', { token: admin });
+  assert.equal(adminDashboard.organizationTotal, 1);
+  assert.equal(adminDashboard.accessible, 1);
+  assert.equal(adminDashboard.uploadedByMe, 1);
+  assert.ok(adminDashboard.activity.some(item => item.action === 'DOCUMENT_UPLOADED'));
+
+  const employeeDashboard = await request('GET', '/dashboard', { token: employee });
+  assert.equal(employeeDashboard.organizationTotal, null);
+  assert.equal(employeeDashboard.accessible, 0);
+  assert.equal(employeeDashboard.uploadedByMe, 0);
+  assert.ok(employeeDashboard.activity.every(item => item.employeeId === employeeId));
+  assert.equal((await request('GET', '/dashboard', { token: outsider })).organizationTotal, 0);
+
   await request('GET', '/employees?q=Finance', { token: outsider }).then(rows => assert.deepEqual(rows, []));
 
   const changeGrants = (grants, original = [], status = 200) =>
@@ -86,6 +99,7 @@ test('DocuVault API against an isolated test database', { skip: !origin }, async
   ];
   const deny = { kind: 'employee', targetId: member.id, action: 'download', effect: 'deny' };
   await changeGrants(allows);
+  assert.equal((await request('GET', '/dashboard', { token: employee })).accessible, 1);
   await changeGrants([], [], 409);
   assert.equal((await request('GET', path, { token: employee })).title, fields.title);
   assert.deepEqual(await request('GET', path + '/download', { token: employee }), pdf);
@@ -117,6 +131,7 @@ test('DocuVault API against an isolated test database', { skip: !origin }, async
   assert.equal((await request('GET', path + '/versions/1/verify', { token: employee })).valid, true);
   const saved = await request('GET', path + '/grants', { token: admin });
   await changeGrants([], saved.grants);
+  assert.equal((await request('GET', '/dashboard', { token: employee })).accessible, 0);
   await request('GET', path, { token: employee, status: 403 });
   await request('PATCH', '/employees/' + member.id, { token: admin, data: { active: false } });
   await request('GET', '/auth/me', { token: employee, status: 401 });

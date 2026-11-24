@@ -77,8 +77,12 @@ documents.get('/dashboard', endpoint(async (tx, req) => {
     where: { ...scopes(req), userId: req.user.id }, orderBy: { sequence: 'desc' }, take: 8,
   });
   const pending = (await listRequests(tx, req)).filter(request => request.status === 'pending').length;
+  const activeDocuments = { ...scopes(req), deletedAt: null };
+  const organizationTotal = req.user.admin ? await tx.document.count({ where: activeDocuments }) : null;
+  const uploadedByMe = await tx.document.count({ where: { ...activeDocuments, ownerId: req.user.id } });
   return {
-    total: rows.length, mine, shared: rows.length - mine, pending,
+    total: rows.length, accessible: rows.length, organizationTotal, uploadedByMe,
+    mine, shared: rows.length - mine, pending,
     confidential: rows.filter(doc => ['Confidential', 'Restricted'].includes(doc.classification)).length,
     recent: rows.slice(0, 5), activity,
   };
