@@ -100,7 +100,8 @@ documents.get('/documents', endpoint(async (tx, req) => {
     doc.allowed.includes(mode === 'manage' ? 'manageAccess' : 'view') &&
     (mode !== 'mine' || doc.ownerId === req.user.id) &&
     (mode !== 'shared' || doc.ownerId !== req.user.id) &&
-    [doc.title, doc.folder, doc.classification, doc.version.fileName].some(value => value.toLowerCase().includes(term))
+    (!term || [doc.title, doc.version.fileName, doc.description, doc.folder, doc.classification]
+      .some(value => value.toLowerCase().includes(term)))
   );
 }));
 documents.post('/documents', upload, endpoint(async (tx, req) => {

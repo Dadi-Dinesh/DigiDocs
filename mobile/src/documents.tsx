@@ -49,13 +49,24 @@ export function DocumentList({ mode: initial = 'all', sensitive = false }: Parti
   const [query, setQuery] = useState('');
   const [classification, setClassification] = useState<string>(sensitive ? 'sensitive' : '');
   const nav = useNav();
-  const feed = useLoad<Document[]>('/documents?mode=' + mode + '&q=' + encodeURIComponent(query) + '&classification=' + classification);
+  const term = query.trim();
+  const feed = useLoad<Document[]>('/documents?mode=' + mode + '&q=' + encodeURIComponent(term) + '&classification=' + classification);
   const title = { all: 'All documents', mine: 'My documents', shared: 'Shared with me', manage: 'Manage access' }[mode];
   return <Screen title={title} subtitle="Browse your organization’s vault" refresh={feed.reload}>
-    <Field label="Search documents" placeholder="Title, file, folder or classification" value={query} onChangeText={setQuery} />
+    <Field label="Search documents" placeholder="Title, file name, or description" value={query}
+      onChangeText={setQuery} maxLength={160} returnKeyType="search" autoCorrect={false} />
+    {!!query && <View style={{ alignSelf: 'flex-start' }}>
+      <Button title="Clear search" icon="close-outline" secondary onPress={() => setQuery('')} />
+    </View>}
     {initial !== 'manage' && <Choices label="Document scope" options={modes} value={mode} select={setMode} />}
     <Choices label="Classification filter" options={[{ id: '', name: 'Any' }, { id: 'sensitive', name: 'Confidential or restricted' }, ...classifications.map(id => ({ id, name: id }))]} value={classification} select={setClassification} />
-    <Status {...feed} retry={feed.reload} empty={feed.data?.length === 0 ? 'No documents match.' : undefined} />
+    <Status {...feed} retry={feed.reload} />
+    {feed.data?.length === 0 && <View style={s.panel}>
+      <Icon name={term ? 'search-outline' : 'folder-open-outline'} color="#A5B4FC" />
+      <Text style={s.section}>{term ? 'No matching documents' : 'No documents to show'}</Text>
+      <Text style={s.muted}>{term ? 'Try a different title, file name, or description. You can also clear your search or adjust the filters.' :
+        'Documents you have access to will appear here. Try a different filter to see more.'}</Text>
+    </View>}
     {feed.data?.map(doc => <DocumentCard key={doc.id} doc={doc} open={() => nav.navigate(mode === 'manage' ? 'Access' : 'Details', { id: doc.id })} />)}
   </Screen>;
 }

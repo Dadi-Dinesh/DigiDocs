@@ -73,7 +73,11 @@ test('DocuVault API against an isolated test database', { skip: !origin }, async
   const path = '/documents/' + doc.id;
   assert.equal(doc.version.sha256, createHash('sha256').update(pdf).digest('hex'));
   assert.equal(Object.hasOwn(doc.version, 'storageKey'), false);
+  const search = async (token, term, filters = '') =>
+    (await request('GET', '/documents?q=' + encodeURIComponent(term) + filters, { token })).map(item => item.id);
   assert.deepEqual(await request('GET', '/documents', { token: employee }), []);
+  assert.deepEqual(await search(employee, 'Records schedule'), []);
+  assert.deepEqual(await search(outsider, 'Records schedule'), []);
   await request('GET', path, { token: employee, status: 403 });
   await request('GET', path, { token: outsider, status: 404 });
   const adminDashboard = await request('GET', '/dashboard', { token: admin });
@@ -99,6 +103,13 @@ test('DocuVault API against an isolated test database', { skip: !origin }, async
   ];
   const deny = { kind: 'employee', targetId: member.id, action: 'download', effect: 'deny' };
   await changeGrants(allows);
+  for (const term of ['RETENTION POLICY', 'retention.pdf', '  rEcOrDs ScHeDuLe  ']) {
+    assert.deepEqual(await search(employee, term, '&mode=shared&classification=Internal'), [doc.id]);
+  }
+  assert.deepEqual(await search(employee, 'Records schedule', '&mode=mine'), []);
+  assert.deepEqual(await search(employee, 'Records schedule', '&classification=Public'), []);
+  assert.deepEqual(await search(employee, 'no such document'), []);
+  assert.deepEqual(await search(employee, ''), [doc.id]);
   assert.equal((await request('GET', '/dashboard', { token: employee })).accessible, 1);
   await changeGrants([], [], 409);
   assert.equal((await request('GET', path, { token: employee })).title, fields.title);
@@ -131,6 +142,7 @@ test('DocuVault API against an isolated test database', { skip: !origin }, async
   assert.equal((await request('GET', path + '/versions/1/verify', { token: employee })).valid, true);
   const saved = await request('GET', path + '/grants', { token: admin });
   await changeGrants([], saved.grants);
+  assert.deepEqual(await search(employee, 'Records schedule'), []);
   assert.equal((await request('GET', '/dashboard', { token: employee })).accessible, 0);
   await request('GET', path, { token: employee, status: 403 });
   await request('PATCH', '/employees/' + member.id, { token: admin, data: { active: false } });
