@@ -192,11 +192,32 @@ for (const path of ['/documents/:id/download', '/documents/:id/versions/:number/
   }));
 }
 
-const rule = z.object({ kind: z.enum(['employee', 'department', 'role']), targetId: id, action: z.enum(actions), effect: z.enum(['allow', 'deny']) });
+const recipientKinds = ['employee', 'department', 'role'];
+const rule = z.object({ kind: z.enum(recipientKinds), targetId: id, action: z.enum(actions), effect: z.enum(['allow', 'deny']) });
 const ruleKey = ({ kind, targetId, action }) => [kind, targetId, action].join('/');
+function requireDelegation(user, doc, action) {
+  if (!documentAccess(user, doc, action)) {
+    throw fail(403, 'You can change rules only for permissions you hold on this document.');
+  }
+}
+
 documents.get('/documents/:id/grants', endpoint(async (tx, req) => {
   const doc = await authorized(tx, req, 'manageAccess');
-  return { title: doc.title, classification: doc.classification, grants: doc.grants };
+  const names = new Map();
+  for (const kind of recipientKinds) {
+    const ids = doc.grants.filter(grant => grant.kind === kind).map(grant => grant.targetId);
+    if (!ids.length) continue;
+    const select = kind === 'employee' ? { id: true, employeeId: true, fullName: true } : { id: true, name: true };
+    const recipients = await tx[kind].findMany({ where: { ...scopes(req), id: { in: ids } }, select });
+    for (const recipient of recipients) {
+      names.set(kind + '/' + recipient.id, kind === 'employee' ? recipient.employeeId + ' · ' + recipient.fullName : recipient.name);
+    }
+  }
+  return {
+    title: doc.title, classification: doc.classification,
+    editableActions: actions.filter(action => documentAccess(req.user, doc, action)),
+    grants: doc.grants.map(grant => ({ ...grant, recipientName: names.get(grant.kind + '/' + grant.targetId) ?? 'Unavailable recipient' })),
+  };
 }));
 documents.put('/documents/:id/grants', endpoint(async (tx, req) => {
   const doc = await authorized(tx, req, 'manageAccess');
@@ -207,7 +228,14 @@ documents.put('/documents/:id/grants', endpoint(async (tx, req) => {
   }
   const next = new Map(input.grants.map(grant => [ruleKey(grant), grant.effect]));
   if (next.size !== input.grants.length) throw fail(400, 'Each target and action may appear once.');
-  for (const kind of ['role', 'department', 'employee']) {
+  const changed = [
+    ...input.grants.filter(grant => old.get(ruleKey(grant)) !== grant.effect),
+    ...doc.grants.filter(grant => !next.has(ruleKey(grant))),
+  ];
+  for (const action of new Set(changed.map(grant => grant.action))) {
+    requireDelegation(req.user, doc, action);
+  }
+  for (const kind of recipientKinds) {
     const ids = [...new Set(input.grants.filter(grant => grant.kind === kind).map(grant => grant.targetId))];
     if (ids.length && await tx[kind].count({ where: { ...scopes(req), id: { in: ids } } }) !== ids.length) {
       throw fail(400, 'A selected recipient does not belong to this organization.');
@@ -271,7 +299,8 @@ documents.patch('/access-requests/:requestId', endpoint(async (tx, req) => {
   const doc = await authorized(tx, req, 'manageAccess');
   const { status } = z.object({ status: z.enum(['approved', 'declined']) }).parse(req.body);
   if (status === 'approved') {
-    const employee = await tx.employee.findUnique({ where: { id: request.employeeId } });
+    requireDelegation(req.user, doc, 'view');
+    const employee = await tx.employee.findFirst({ where: { id: request.employeeId, ...scopes(req) } });
     const role = employee?.roleId && await tx.role.findFirst({ where: { id: employee.roleId, ...scopes(req) } });
     const grant = { documentId: doc.id, kind: 'employee', targetId: request.employeeId, action: 'view' };
     const grants = [...doc.grants.filter(item => ruleKey(item) !== ruleKey(grant)), { ...grant, effect: 'allow' }];

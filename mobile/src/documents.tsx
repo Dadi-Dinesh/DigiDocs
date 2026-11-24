@@ -1,12 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Image, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Image, Text, View } from 'react-native';
 import * as Picker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { actions, actionLabel, apiOrigin, classifications, date, get, multipart, send, sessionToken, type Document, type Employee, type Grant, type Named, type Version } from './api';
 import { permitted, useNav, useUser, type Routes } from './navigation';
-import { Button, c, Chip, Choices, confirm, DocumentCard, Field, Icon, s, Screen, Status, useLoad, useMutation } from './ui';
+import { Button, Chip, Choices, DocumentCard, FileIcon, Field, Icon, Screen, Status, useLoad, useMutation, useUI, useDialog } from './ui';
 
 const size = (bytes: number) => bytes >= 1024 * 1024 ? (bytes / 1024 / 1024).toFixed(1) + ' MB' : Math.ceil(bytes / 1024) + ' KB';
 const kinds = [{ id: 'role', name: 'Roles' }, { id: 'department', name: 'Departments' }, { id: 'employee', name: 'Employees' }] as const;
@@ -38,7 +38,7 @@ function discardPickerFile(file: Picker.DocumentPickerAsset) {
   } catch { /* OS-managed cache */ }
 }
 
-async function download(id: string, version: Version) {
+async function download(id: string, version: Pick<Version, 'fileName' | 'number' | 'mime'>) {
   if (!await Sharing.isAvailableAsync()) throw new Error('File export is unavailable on this device.');
   const token = sessionToken();
   if (!token) throw new Error('Sign in to download this file.');
@@ -52,8 +52,13 @@ async function download(id: string, version: Version) {
     if (local.exists) local.delete();
   }
 }
-export function DocumentList({ mode: initial = 'all', sensitive = false }: Partial<Routes['List']>) {
+export function DocumentList({ mode: initial = 'all', sensitive = false, openUpload }: Partial<Routes['List']> & {
+  openUpload?: () => void;
+}) {
+  const { s } = useUI();
   const [mode, setMode] = useState(initial);
+  const [showFilters, setShowFilters] = useState(sensitive);
+  const [sort, setSort] = useState('recent');
   const [query, setQuery] = useState('');
   const [classification, setClassification] = useState<string>(sensitive ? 'sensitive' : '');
   const [fileType, setFileType] = useState('');
@@ -62,21 +67,34 @@ export function DocumentList({ mode: initial = 'all', sensitive = false }: Parti
   const term = query.trim();
   const params = new URLSearchParams({ mode, q: term, classification, fileType, uploadedWithin });
   const feed = useLoad<Document[]>('/documents?' + params.toString());
-  const hasFilters = Boolean(classification || fileType || uploadedWithin);
+  const filterCount = [classification, fileType, uploadedWithin].filter(Boolean).length;
+  const hasFilters = filterCount > 0;
+  const documents = [...(feed.data ?? [])].sort((a, b) => {
+    if (sort === 'title') return a.title.localeCompare(b.title);
+    const direction = sort === 'oldest' ? 1 : -1;
+    return direction * (Date.parse(a.version.createdAt) - Date.parse(b.version.createdAt));
+  });
   const resetFilters = () => {
     setClassification('');
     setFileType('');
     setUploadedWithin('');
   };
   const title = { all: 'All documents', mine: 'My documents', shared: 'Shared with me', manage: 'Manage access' }[mode];
-  return <Screen title={title} subtitle="Browse your organization’s vault" refresh={feed.reload}>
-    <Field label="Search documents" placeholder="Title, file name, or description" value={query}
+  return <Screen title={title} refresh={feed.reload} refreshing={feed.refreshing}>
+    {openUpload && <Button title="Upload document" icon="add-outline" onPress={openUpload} />}
+    <Field label="Search documents" icon="search-outline" placeholder="Title, file name, or description" value={query}
       onChangeText={setQuery} maxLength={160} returnKeyType="search" autoCorrect={false} />
     {!!query && <View style={{ alignSelf: 'flex-start' }}>
       <Button title="Clear search" icon="close-outline" secondary onPress={() => setQuery('')} />
     </View>}
     {initial !== 'manage' && <Choices label="Document scope" options={modes} value={mode} select={setMode} />}
-    <View style={s.panel}>
+    <Button secondary icon="options-outline"
+      title={(showFilters ? 'Hide filters and sorting' : 'Filters and sorting') + (filterCount ? ' (' + filterCount + ')' : '')}
+      onPress={() => setShowFilters(value => !value)} />
+    {showFilters && <View style={s.panel}>
+      <Choices label="Sort by" options={[
+        { id: 'recent', name: 'Latest upload' }, { id: 'oldest', name: 'Oldest upload' }, { id: 'title', name: 'Title A–Z' },
+      ]} value={sort} select={setSort} />
       <Choices label="Classification" options={[
         { id: '', name: 'Any' },
         ...classifications.map(id => ({ id, name: id })),
@@ -86,21 +104,22 @@ export function DocumentList({ mode: initial = 'all', sensitive = false }: Parti
         value={fileType} select={setFileType} />
       <Choices label="Latest upload date" options={uploadDates} value={uploadedWithin} select={setUploadedWithin} />
       <Button title="Reset Filters" secondary disabled={!hasFilters} onPress={resetFilters} />
-    </View>
+    </View>}
     <Status {...feed} retry={feed.reload} />
     {feed.data?.length === 0 && <View style={s.panel}>
-      <Icon name={term ? 'search-outline' : 'folder-open-outline'} color="#A5B4FC" />
+      <Icon name={term ? 'search-outline' : 'folder-open-outline'} />
       <Text style={s.section}>{term || hasFilters ? 'No matching documents' : 'No documents to show'}</Text>
       <Text style={s.muted}>{term ? 'Try a different title, file name, or description. You can also clear your search or adjust the filters.' :
         hasFilters ? 'Try adjusting or resetting your filters to see more documents.' :
         'Documents you have access to will appear here.'}</Text>
     </View>}
-    {feed.data?.map(doc => <DocumentCard key={doc.id} doc={doc} open={() => nav.navigate(mode === 'manage' ? 'Access' : 'Details', { id: doc.id })} />)}
+    {documents.map(doc => <DocumentCard key={doc.id} doc={doc} open={() => nav.navigate(mode === 'manage' ? 'Access' : 'Details', { id: doc.id })} />)}
   </Screen>;
 }
 export const ListScreen = ({ route }: NativeStackScreenProps<Routes, 'List'>) => <DocumentList key={route.params.mode + String(route.params.sensitive)} {...route.params} />;
 
 function MetadataForm({ doc, save }: { doc?: Document; save: (data: { title: string; description: string; folder: string; classification: Document['classification']; departmentId: string }, file?: Picker.DocumentPickerAsset) => Promise<void>; }) {
+  const { s } = useUI();
   const [title, setTitle] = useState(doc?.title ?? '');
   const [description, setDescription] = useState(doc?.description ?? '');
   const [folder, setFolder] = useState(doc?.folder ?? 'General');
@@ -121,7 +140,7 @@ function MetadataForm({ doc, save }: { doc?: Document; save: (data: { title: str
   const mutation = useMutation();
   return <Screen title={doc ? 'Edit document' : 'Upload document'} subtitle={doc ? 'Update the document’s catalog details.' : 'Add a file to your organization’s vault.'}>
     {!doc && <View style={s.panel}>
-      <Icon name="cloud-upload-outline" color="#A5B4FC" size={30} />
+      <Icon name="cloud-upload-outline" size={30} />
       <Text style={s.section}>{file?.name ?? 'Choose a file'}</Text>
       <Text style={s.muted}>{file ? size(file.size ?? 0) : 'PDF, DOCX, XLSX, JPG or PNG · Up to 20 MB'}</Text>
       <Button secondary title={file ? 'Replace file' : 'Browse files'} disabled={mutation.busy} onPress={() => void mutation.run(async () => {
@@ -155,6 +174,7 @@ function MetadataForm({ doc, save }: { doc?: Document; save: (data: { title: str
 }
 
 export function UploadScreen() {
+  const { inform } = useDialog();
   const user = useUser();
   const nav = useNav();
   if (!permitted(user, 'upload')) return <Screen title="Upload"><Status empty="Your role does not have upload permission." /></Screen>;
@@ -163,7 +183,7 @@ export function UploadScreen() {
     const doc = await send<Document>('POST', '/documents', multipart(file, fields));
     if (doc.allowed.includes('manageAccess')) nav.navigate('Access', { id: doc.id });
     else if (doc.allowed.includes('view')) nav.navigate('Details', { id: doc.id });
-    else Alert.alert('Upload complete', 'Your file is in the vault. Contact a document manager to set its access rules.');
+    else inform('Upload complete', 'Your file is in the vault. Contact a document manager to set its access rules.');
   }} />;
 }
 export function EditScreen({ route, navigation }: NativeStackScreenProps<Routes, 'Edit'>) {
@@ -176,11 +196,13 @@ export function EditScreen({ route, navigation }: NativeStackScreenProps<Routes,
   }} />;
 }
 export function DetailsScreen({ route, navigation }: NativeStackScreenProps<Routes, 'Details'>) {
+  const { s } = useUI();
+  const { confirm } = useDialog();
   const { id } = route.params;
   const feed = useLoad<Document>('/documents/' + id);
   const mutation = useMutation();
   const doc = feed.data;
-  return <Screen title={doc?.title ?? 'Document details'} subtitle={doc?.folder} refresh={feed.reload}>
+  return <Screen title={doc?.title ?? 'Document details'} subtitle={doc?.folder} refresh={feed.reload} refreshing={feed.refreshing}>
     <Status {...feed} retry={feed.reload} />
     {doc && <>
       <View style={s.panel}>
@@ -197,7 +219,7 @@ export function DetailsScreen({ route, navigation }: NativeStackScreenProps<Rout
       <Button title="Preview document" icon="eye-outline" onPress={() => navigation.navigate('Preview', { id, number: doc.version.number, fileName: doc.version.fileName, mime: doc.version.mime, canDownload: doc.allowed.includes('download') })} />
       {doc.allowed.includes('download') && <Button title={mutation.busy ? 'Working…' : 'Download file'} disabled={mutation.busy} icon="download-outline" onPress={() => void mutation.run(() => download(id, doc.version))} />}
       <Button secondary title="Version history" icon="layers-outline" onPress={() => navigation.navigate('Versions', { id, download: doc.allowed.includes('download'), edit: doc.allowed.includes('edit') })} />
-      <Button secondary title="Verify SHA-256" icon="shield-checkmark-outline" onPress={() => navigation.navigate('Verify', { id, number: doc.version.number })} />
+      <DocumentVerification key={id + '/' + doc.version.number} id={id} number={doc.version.number} />
       {doc.allowed.includes('edit') && <Button secondary title="Edit details" onPress={() => navigation.navigate('Edit', { id })} />}
       {doc.allowed.includes('manageAccess') && <>
         <Button secondary title="Manage access" icon="people-outline" onPress={() => navigation.navigate('Access', { id })} />
@@ -212,7 +234,9 @@ export function DetailsScreen({ route, navigation }: NativeStackScreenProps<Rout
   </Screen>;
 }
 
-type AccessData = { title: string; classification: string; grants: Grant[] };
+type AccessData = { title: string; classification: string; grants: Grant[]; editableActions: Grant['action'][] };
+const sharingActions = ['view', 'download'] as const;
+const recipientLabel = { role: 'Role', department: 'Department', employee: 'Employee' };
 export function AccessScreen({ route }: NativeStackScreenProps<Routes, 'Access'>) {
   const path = '/documents/' + route.params.id + '/grants';
   const feed = useLoad<AccessData>(path);
@@ -220,12 +244,15 @@ export function AccessScreen({ route }: NativeStackScreenProps<Routes, 'Access'>
     <Screen title="Manage access"><Status {...feed} retry={feed.reload} /></Screen>;
 }
 function AccessEditor({ path, record, reload }: { path: string; record: AccessData; reload: () => void }) {
+  const { c, s } = useUI();
+  const { confirm, inform } = useDialog();
   const [kind, setKind] = useState<Grant['kind']>('role');
   const [query, setQuery] = useState('');
   const [target, setTarget] = useState('');
   const [original, setOriginal] = useState(record.grants);
   const [grants, setGrants] = useState(record.grants);
   const [review, setReview] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const mutation = useMutation();
   const roles = useLoad<Named[]>('/roles');
   const departments = useLoad<Named[]>('/departments');
@@ -233,32 +260,38 @@ function AccessEditor({ path, record, reload }: { path: string; record: AccessDa
   const employeeOptions = employees.data?.map(item => ({ id: item.id, name: item.employeeId + ' · ' + item.fullName })) ?? [];
   const options = kind === 'role' ? roles.data ?? [] : kind === 'department' ? departments.data ?? [] : employeeOptions;
   const group = kind === 'role' ? roles : kind === 'department' ? departments : employees;
-  const nameFor = (grant: Grant) => {
-    const candidates = grant.kind === 'role' ? roles.data : grant.kind === 'department' ? departments.data : employeeOptions;
-    return candidates?.find(item => item.id === grant.targetId)?.name ?? grant.targetId;
-  };
+  const editable = (action: Grant['action']) => record.editableActions.includes(action);
+  const matches = (grant: Grant, action: Grant['action']) =>
+    grant.kind === kind && grant.targetId === target && grant.action === action;
   const selectRule = (action: Grant['action'], effect: '' | Grant['effect']) => {
-    const other = grants.filter(grant => !(grant.kind === kind && grant.targetId === target && grant.action === action));
-    setGrants(effect ? [...other, { kind, targetId: target, action, effect }] : other);
+    const other = grants.filter(grant => !matches(grant, action));
+    const recipientName = options.find(item => item.id === target)?.name;
+    setGrants(effect ? [...other, { kind, targetId: target, action, effect, recipientName }] : other);
   };
   return <Screen title={review ? 'Review access' : 'Manage access'} subtitle={record.title + ' · ' + record.classification}>
     {!review && <>
       <View style={s.panel}><Text style={s.muted}>A matching denial overrides an allow. Restricted documents require individual grants. Confidential documents accept role or employee grants.</Text></View>
-      <Choices label="Grant to" options={kinds} value={kind} select={value => { setKind(value); setTarget(''); }} />
-      {kind === 'employee' && <Field label="Find by Employee ID" value={query} onChangeText={setQuery} autoCapitalize="characters" />}
+      <Choices label="Recipient type" options={kinds} value={kind} select={value => { setKind(value); setTarget(''); }} />
+      {kind === 'employee' && <Field label="Find by Employee ID" value={query} onChangeText={value => { setQuery(value); setTarget(''); }} autoCapitalize="characters" />}
       <Status {...group} retry={group.reload} empty={options.length === 0 && !group.loading && !group.error ? 'No matching recipients.' : undefined} />
       {!!options.length && <Choices label="Select a recipient" options={options} value={target} select={setTarget} />}
-      {!!target && <View style={s.panel}>{actions.map(action => <Choices key={action} label={actionLabel[action]}
-        options={[{ id: '', name: 'No rule' }, { id: 'allow', name: 'Allow' }, { id: 'deny', name: 'Deny' }] as const}
-        value={grants.find(grant => grant.kind === kind && grant.targetId === target && grant.action === action)?.effect ?? ''}
-        select={effect => selectRule(action, effect)} />)}</View>}
+      {!!target && <View style={s.panel}>{(showAdvanced ? actions : sharingActions).map(action => editable(action) ?
+        <Choices key={action} label={actionLabel[action]}
+          options={[{ id: '', name: 'No rule' }, { id: 'allow', name: 'Grant' }, { id: 'deny', name: 'Deny' }] as const}
+          value={grants.find(grant => matches(grant, action))?.effect ?? ''}
+          select={effect => selectRule(action, effect)} /> :
+        <Text key={action} style={s.muted}>You need {actionLabel[action]} permission to change this rule.</Text>
+      )}
+        <Button secondary title={showAdvanced ? 'Hide advanced permissions' : 'Show advanced permissions'}
+          onPress={() => setShowAdvanced(value => !value)} />
+      </View>}
     </>}
-    <Text style={s.section}>Access summary</Text>
+    <Text style={s.section}>{review ? 'Access after saving' : 'Access rules'}</Text>
     {!grants.length && <Status empty="No explicit rules. The uploader and administrator retain access where their role allows it." />}
     {grants.map(grant => <View key={[grant.kind, grant.targetId, grant.action].join('/')} style={[s.panel, s.row]}>
-      <View style={s.fill}><Text style={s.text}>{nameFor(grant)}</Text><Text style={s.muted}>{grant.kind} · {actionLabel[grant.action]}</Text></View>
+      <View style={s.fill}><Text style={s.text}>{grant.recipientName ?? 'Unavailable recipient'}</Text><Text style={s.muted}>{recipientLabel[grant.kind]} · {actionLabel[grant.action]}</Text></View>
       <Text style={[s.badge, grant.effect === 'deny' && { color: c.red }]}>{grant.effect === 'allow' ? 'Allow' : 'Deny'}</Text>
-      {!review && <Chip label="Remove" selected={false} onPress={() => setGrants(grants.filter(item => item !== grant))} />}
+      {!review && editable(grant.action) && <Chip label={grant.effect === 'allow' ? 'Revoke' : 'Remove denial'} selected={false} onPress={() => setGrants(grants.filter(item => item !== grant))} />}
     </View>)}
     {!!mutation.error && <Text style={s.error}>{mutation.error}</Text>}
     {review ? <>
@@ -267,7 +300,8 @@ function AccessEditor({ path, record, reload }: { path: string; record: AccessDa
         await send('PUT', path, { grants, original });
         setOriginal(grants);
         setReview(false);
-        Alert.alert('Access updated', 'The new permissions are now active.');
+        reload();
+        inform('Access updated', 'The new permissions are now active.');
       })} />
     </> : <>
       <Button title="Review changes" onPress={() => setReview(true)} />
@@ -282,11 +316,12 @@ function AccessEditor({ path, record, reload }: { path: string; record: AccessDa
 }
 
 export function VersionsScreen({ route, navigation }: NativeStackScreenProps<Routes, 'Versions'>) {
+  const { s } = useUI();
   const { id, edit, download: canDownload } = route.params;
   const path = '/documents/' + id + '/versions';
   const feed = useLoad<Version[]>(path);
   const mutation = useMutation();
-  return <Screen title="Version history" refresh={feed.reload}>
+  return <Screen title="Version history" refresh={feed.reload} refreshing={feed.refreshing}>
     <Status {...feed} retry={feed.reload} />
     {!!mutation.error && <Text style={s.error}>{mutation.error}</Text>}
     {edit && <Button title={mutation.busy ? 'Working…' : 'Upload new version'} icon="cloud-upload-outline" disabled={mutation.busy} onPress={() => void mutation.run(async () => {
@@ -305,41 +340,74 @@ export function VersionsScreen({ route, navigation }: NativeStackScreenProps<Rou
     </View>)}
   </Screen>;
 }
-export function VerifyScreen({ route }: NativeStackScreenProps<Routes, 'Verify'>) {
-  const { id, number } = route.params;
+function DocumentVerification({ id, number, showFingerprints = false }: {
+  id: string; number: number; showFingerprints?: boolean;
+}) {
+  const { c, s } = useUI();
   const path = '/documents/' + id + '/versions/' + number + '/verify';
   const [result, setResult] = useState<{ valid: boolean; expected: string; computed: string }>();
   const mutation = useMutation();
-  return <Screen title="SHA-256 verification" subtitle={'Document version ' + number}>
-    <View style={s.panel}><Icon name="shield-checkmark-outline" color={result?.valid ? c.green : '#A5B4FC'} size={32} />
-      <Text style={s.muted}>Compare the stored fingerprint with the current file bytes.</Text></View>
-    <Button title={mutation.busy ? 'Checking…' : 'Verify integrity'} disabled={mutation.busy} onPress={() => void mutation.run(async () => {
-      setResult(undefined);
-      setResult(await get(path));
-    })} />
-    {!!mutation.error && <Text style={s.error}>{mutation.error}</Text>}
+  return <>
+    <Button secondary title={mutation.busy ? 'Verifying…' : 'Verify'} icon="shield-checkmark-outline"
+      disabled={mutation.busy} onPress={() => void mutation.run(async () => {
+        setResult(undefined);
+        setResult(await get(path));
+      })} />
+    {!!mutation.error && <Text accessibilityRole="alert" style={s.error}>{mutation.error}</Text>}
     {result && <View style={s.panel}>
-      <Text style={[s.section, { color: result.valid ? c.green : c.red }]}>{result.valid ? 'Fingerprints match' : 'Fingerprint mismatch'}</Text>
-      <Text style={s.label}>Stored fingerprint</Text><Text selectable style={s.mono}>{result.expected}</Text>
-      <Text style={s.label}>Computed fingerprint</Text><Text selectable style={s.mono}>{result.computed}</Text>
+      <Text accessibilityLiveRegion="polite" style={[s.section, { color: result.valid ? c.text : c.red }]}>
+        {result.valid ? 'Verified' : 'Integrity Check Failed'}
+      </Text>
+      <Text style={s.muted}>{result.valid ? 'The file matches its saved SHA-256 fingerprint.' :
+        'The stored file differs from the uploaded version.'}</Text>
+      {showFingerprints && <>
+        <Text style={s.label}>Stored fingerprint</Text><Text selectable style={s.mono}>{result.expected}</Text>
+        <Text style={s.label}>Computed fingerprint</Text><Text selectable style={s.mono}>{result.computed}</Text>
+      </>}
     </View>}
+  </>;
+}
+
+export function VerifyScreen({ route }: NativeStackScreenProps<Routes, 'Verify'>) {
+  const { id, number } = route.params;
+  return <Screen title="SHA-256 verification" subtitle={'Document version ' + number}>
+    <DocumentVerification key={id + '/' + number} id={id} number={number} showFingerprints />
   </Screen>;
 }
 
 type Preview = { pages: number; data: string; width: number; height: number };
 
 export function PreviewScreen({ route }: NativeStackScreenProps<Routes, 'Preview'>) {
+  const { c, s } = useUI();
   const { id, number, fileName, mime, canDownload } = route.params;
   const [page, setPage] = useState(1);
+  const [showActions, setShowActions] = useState(false);
+  const mutation = useMutation();
   const supported = ['application/pdf', 'image/png', 'image/jpeg'].includes(mime);
   const feed = useLoad<Preview>(supported ? '/documents/' + id + '/versions/' + number + '/preview/' + page : null);
   const preview = feed.data;
-  return <Screen title="Document preview" subtitle={fileName + ' · Version ' + number}>
+  return <Screen title="Document preview">
+    <View style={[s.panel, s.row]}>
+      <FileIcon fileName={fileName} />
+      <View style={s.fill}>
+        <Text style={s.section}>{fileName}</Text>
+        <Text style={s.muted}>Version {number}</Text>
+      </View>
+    </View>
+    {canDownload && <>
+      <Button secondary icon="ellipsis-horizontal" title={showActions ? 'Hide document actions' : 'Document actions'}
+        onPress={() => setShowActions(value => !value)} />
+      {showActions && <View style={s.panel}>
+        <Button title={mutation.busy ? 'Preparing file…' : 'Download or share'} icon="share-outline"
+          disabled={mutation.busy} onPress={() => void mutation.run(() => download(id, { number, fileName, mime }))} />
+        {!!mutation.error && <Text accessibilityRole="alert" style={s.error}>{mutation.error}</Text>}
+      </View>}
+    </>}
     {!supported && <View style={s.panel}>
-      <Icon name="document-outline" color="#A5B4FC" size={30} />
+      <Icon name="document-outline" size={30} />
       <Text style={s.section}>Preview unavailable</Text>
       <Text style={s.muted}>You can preview PDF, JPG, and PNG files in DocuVault.</Text>
-      {canDownload && <Text style={s.muted}>Go back to download this file and open it in another app.</Text>}
+      {canDownload && <Text style={s.muted}>Use Document actions to download this file and open it in another app.</Text>}
     </View>}
     <Status {...feed} retry={feed.reload} />
     {preview && <>

@@ -3,7 +3,7 @@ import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import { email, password } from './auth.js';
 import { endpoint, fail, id, label, requireAdmin, requirePermission, sameOrg, scopes } from './http.js';
-import { can, permissions } from './policy.js';
+import { can, documentAccess, permissions } from './policy.js';
 import { verifyChain } from './database.js';
 
 export const organization = Router();
@@ -79,6 +79,38 @@ organization.patch('/employees/:id', endpoint(async (tx, req) => {
 organization.get('/audit', endpoint((tx, req) => {
   requirePermission(req.user, 'audit');
   return tx.audit.findMany({ where: scopes(req), orderBy: { sequence: 'desc' }, take: 100 });
+}));
+const documentActivityActions = [
+  'DOCUMENT_UPLOADED', 'DOCUMENT_VIEWED', 'DOCUMENT_DOWNLOADED', 'PERMISSION_GRANTED', 'PERMISSION_REVOKED',
+];
+organization.get('/audit/activity', endpoint(async (tx, req) => {
+  const scope = scopes(req);
+  const canAudit = can(req.user, 'audit');
+  const events = await tx.audit.findMany({
+    where: {
+      ...scope, action: { in: documentActivityActions }, documentId: { not: null },
+      ...(canAudit ? {} : { userId: req.user.id }),
+    },
+    select: { sequence: true, action: true, timestamp: true, documentId: true, userId: true, employeeId: true },
+    orderBy: { sequence: 'desc' }, take: 100,
+  });
+  const documentIds = [...new Set(events.map(event => event.documentId))];
+  const documents = await tx.document.findMany({
+    where: { ...scope, id: { in: documentIds } },
+    include: { grants: canAudit ? false : { where: { action: 'view' } } },
+  });
+  const eligible = new Map(documents
+    .filter(doc => canAudit || documentAccess(req.user, doc, 'view'))
+    .map(doc => [doc.id, doc.title]));
+  const recent = events.filter(event => eligible.has(event.documentId)).slice(0, 30);
+  const employees = await tx.employee.findMany({
+    where: { ...scope, id: { in: [...new Set(recent.map(event => event.userId))] } },
+    select: { id: true, fullName: true },
+  });
+  const names = new Map(employees.map(employee => [employee.id, employee.fullName]));
+  return recent.map(({ userId, documentId, ...event }) => ({
+    ...event, employeeName: names.get(userId) ?? null, documentName: eligible.get(documentId),
+  }));
 }));
 organization.get('/audit/verify', endpoint(async (tx, req) => {
   requirePermission(req.user, 'audit');

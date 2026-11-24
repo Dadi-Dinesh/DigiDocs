@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { actionLabel, date, permissions, send, type Audit, type Employee, type Named, type Role } from './api';
 import { useUser } from './navigation';
-import { Button, c, Chip, Choices, confirm, Field, s, Screen, Status, useLoad, useMutation } from './ui';
+import { Button, Chip, Choices, Field, Screen, Status, useLoad, useMutation, useUI, useDialog } from './ui';
 
 type CatalogItem = Named & { permissions?: string[] };
 function Catalog({ roles }: { roles: boolean }) {
+  const { s } = useUI();
+  const { confirm } = useDialog();
   const user = useUser();
   const path = roles ? '/roles' : '/departments';
   const noun = roles ? 'role' : 'department';
@@ -19,7 +21,7 @@ function Catalog({ roles }: { roles: boolean }) {
     setName(next?.name ?? '');
     setSelected(next?.permissions ?? []);
   }
-  return <Screen title={roles ? 'Roles' : 'Departments'} subtitle={roles ? 'Configure permissions for organization roles.' : 'Organize employees and document recipients.'} refresh={feed.reload}>
+  return <Screen title={roles ? 'Roles' : 'Departments'} subtitle={roles ? 'Configure permissions for organization roles.' : 'Organize employees and document recipients.'} refresh={feed.reload} refreshing={feed.refreshing}>
     <Status {...feed} retry={feed.reload} empty={feed.data?.length === 0 ? 'No ' + noun + 's yet.' : undefined} />
     {feed.data?.map(row => <View key={row.id} style={s.panel}>
       <Text style={s.section}>{row.name}</Text>
@@ -49,6 +51,7 @@ export const RolesScreen = () => <Catalog roles />;
 export const DepartmentsScreen = () => <Catalog roles={false} />;
 
 function EmployeeForm({ employee, close, roles, departments }: { employee?: Employee; close: () => void; roles: Role[]; departments: Named[] }) {
+  const { s } = useUI();
   const user = useUser();
   const [fullName, setName] = useState(employee?.fullName ?? '');
   const [employeeId, setEmployeeId] = useState(employee?.employeeId ?? '');
@@ -82,13 +85,15 @@ function EmployeeForm({ employee, close, roles, departments }: { employee?: Empl
   </View>;
 }
 export function EmployeesScreen() {
+  const { s } = useUI();
+  const { confirm } = useDialog();
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<Employee | 'new'>();
   const feed = useLoad<Employee[]>('/employees?q=' + encodeURIComponent(query));
   const departments = useLoad<Named[]>('/departments');
   const roles = useLoad<Role[]>('/roles');
   const mutation = useMutation();
-  return <Screen title="Employees" subtitle="Manage organization members" refresh={feed.reload}>
+  return <Screen title="Employees" subtitle="Manage organization members" refresh={feed.reload} refreshing={feed.refreshing}>
     <Field label="Search employees" value={query} onChangeText={setQuery} placeholder="Name, Employee ID, department or designation" />
     {!editing && <Button title="Register employee" icon="person-add-outline" onPress={() => setEditing('new')} />}
     <Status {...feed} retry={feed.reload} empty={feed.data?.length === 0 ? 'No matching employees.' : undefined} />
@@ -98,7 +103,7 @@ export function EmployeesScreen() {
     {editing && <EmployeeForm key={editing === 'new' ? 'new' : editing.id} employee={editing === 'new' ? undefined : editing}
       roles={roles.data ?? []} departments={departments.data ?? []} close={() => { setEditing(undefined); feed.reload(); }} />}
     {feed.data?.map(employee => <View key={employee.id} style={s.panel}>
-      <View style={s.row}><Text style={[s.section, s.fill]}>{employee.fullName}</Text><Text style={[s.badge, { color: employee.active ? '#86EFAC' : c.red }]}>{employee.active ? 'Active' : 'Inactive'}</Text></View>
+      <View style={s.row}><Text style={[s.section, s.fill]}>{employee.fullName}</Text><Text style={s.badge}>{employee.active ? 'Active' : 'Inactive'}</Text></View>
       <Text style={s.muted}>{employee.employeeId} · {employee.designation}</Text>
       <Text style={s.text}>{employee.email}</Text>
       <Text style={s.muted}>{departments.data?.find(item => item.id === employee.departmentId)?.name ?? 'Unassigned department'} · {employee.admin ? 'Administrator' : roles.data?.find(item => item.id === employee.roleId)?.name ?? 'Unassigned role'}</Text>
@@ -120,15 +125,16 @@ export function EmployeesScreen() {
 
 export const eventLabel = (value: string) => value.toLowerCase().replace(/_/g, ' ').replace(/^./, first => first.toUpperCase());
 export function AuditScreen() {
+  const { c, s } = useUI();
   const feed = useLoad<Audit[]>('/audit');
   const [result, setResult] = useState<{ valid: boolean; entries?: number; sequence?: number }>();
   const mutation = useMutation();
-  return <Screen title="Audit logs" subtitle="Latest 100 organization events" refresh={feed.reload}>
+  return <Screen title="Audit logs" subtitle="Latest 100 organization events" refresh={feed.reload} refreshing={feed.refreshing}>
     <Button title={mutation.busy ? 'Verifying…' : 'Verify audit chain'} icon="shield-checkmark-outline" disabled={mutation.busy} onPress={() => void mutation.run(async () =>
       setResult(await send('GET', '/audit/verify'))
     )} />
     {!!mutation.error && <Text style={s.error}>{mutation.error}</Text>}
-    {result && <Text style={[s.text, { color: result.valid ? c.green : c.red }]}>{result.valid ? 'Verified ' + result.entries + ' audit entries.' : 'Chain mismatch at sequence ' + result.sequence + '.'}</Text>}
+    {result && <Text style={[s.text, { color: result.valid ? c.text : c.red }]}>{result.valid ? 'Verified ' + result.entries + ' audit entries.' : 'Chain mismatch at sequence ' + result.sequence + '.'}</Text>}
     <Status {...feed} retry={feed.reload} empty={feed.data?.length === 0 ? 'No audit events yet.' : undefined} />
     {feed.data?.map(item => <View key={item.sequence} style={s.panel}>
       <Text style={s.section}>{eventLabel(item.action)}</Text><Text style={s.muted}>{item.employeeId} · {new Date(item.timestamp).toLocaleString()}</Text>

@@ -8,11 +8,13 @@ import { audit, organizationTransaction } from './database.js';
 import { db, endpoint, fail, label, sessionUser } from './http.js';
 
 export const password = z.string().min(12).refine(value => Buffer.byteLength(value) <= 72, 'Password must be at most 72 bytes.');
-const slug = z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9-]{1,49}$/);
-export const email = z.email().max(254).transform(value => value.toLowerCase());
+const slug = z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9-]{1,49}$/, 'Use 2–50 letters, numbers, or hyphens, starting with a letter or number.');
+export const email = z.string().trim().toLowerCase().pipe(z.email().max(254));
 const employeeId = label.transform(value => value.toUpperCase());
 const existingPassword = z.string().min(1).refine(value => Buffer.byteLength(value) <= 72, 'Password must be at most 72 bytes.');
 const credentials = z.object({ slug, employeeId, password: existingPassword });
+const emailCredentials = z.object({ slug, email, password: existingPassword });
+const loginCredentials = z.union([emailCredentials, credentials]);
 const registration = credentials.extend({ password, fullName: label, email, name: label, description: z.string().max(2000).default('') });
 const secret = process.env.JWT_SECRET;
 const jwtOptions = { issuer: 'docuvault-api', audience: 'docuvault-mobile' };
@@ -39,13 +41,13 @@ auth.post('/register', rate, async (req, res) => {
   res.status(201).json(result);
 });
 auth.post('/login', rate, async (req, res) => {
-  const { slug, employeeId, password } = credentials.parse(req.body);
+  const { slug, password, ...identifier } = loginCredentials.parse(req.body);
   const org = await db.organization.findUnique({ where: { slug } });
-  const candidate = org && await db.employee.findFirst({ where: { organizationId: org.id, employeeId } });
+  const candidate = org && await db.employee.findFirst({ where: { organizationId: org.id, ...identifier } });
   const matches = await bcrypt.compare(password, candidate?.passwordHash ?? fallbackHash);
   if (!matches || !candidate?.active) {
     if (candidate) await organizationTransaction(org.id, tx => audit(tx, candidate, 'ACCESS_FAILED', null, { operation: 'login' }));
-    throw fail(401, 'Invalid organization, Employee ID or password.');
+    throw fail(401, 'Invalid organization code, email or Employee ID, or password.');
   }
   const result = await organizationTransaction(org.id, async tx => {
     const current = await tx.employee.findUnique({ where: { id: candidate.id } });

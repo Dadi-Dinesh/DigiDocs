@@ -3,8 +3,11 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import type { DocumentPickerAsset } from 'expo-document-picker';
 
-const fallback = Platform.OS === 'android' ? 'http://10.0.2.2:4000' : 'http://localhost:4000';
-export const apiOrigin = (process.env.EXPO_PUBLIC_API_URL || fallback).replace(/\/$/, '');
+const fallback = Platform.OS === 'android' ? 'http://10.0.2.2:4000' : 'http://127.0.0.1:4000';
+export const apiOrigin = (process.env.EXPO_PUBLIC_API_URL?.trim() || fallback)
+  .replace(/\/+$/, '')
+  .replace(/\/api$/i, '');
+const validOrigin = /^https?:\/\/(?:\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::[0-9]+)?$/i.test(apiOrigin);
 const api = axios.create({ baseURL: apiOrigin + '/api', timeout: 25000 });
 const key = 'docuvault.session';
 let token: string | null = null;
@@ -24,6 +27,9 @@ export function onSessionExpired(handler?: () => void) {
   expiryHandler = handler;
 }
 api.interceptors.request.use(config => {
+  if (!validOrigin) {
+    throw new Error('Set EXPO_PUBLIC_API_URL to an HTTP or HTTPS origin in mobile/.env, then restart Expo.');
+  }
   if (token) config.headers.Authorization = 'Bearer ' + token;
   return config;
 });
@@ -39,9 +45,20 @@ export const get = async <T,>(path: string) => (await api.get<T>(path)).data;
 export const send = async <T = unknown,>(method: string, path: string, data?: object) => (
   await api.request<T>({ method, url: path, data, headers: data instanceof FormData ? { 'Content-Type': 'multipart/form-data' } : undefined })
 ).data;
-export const errorMessage = (error: unknown) =>
-  axios.isAxiosError(error) ? error.response?.data?.error ?? 'Could not reach DocuVault. Check your connection and API URL.' :
-  error instanceof Error ? error.message : 'Something went wrong.';
+export function errorMessage(error: unknown) {
+  if (!axios.isAxiosError<{ error?: unknown }>(error)) {
+    return error instanceof Error ? error.message : 'Something went wrong.';
+  }
+  const serverMessage = error.response?.data?.error;
+  if (typeof serverMessage === 'string' && serverMessage) return serverMessage;
+  if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+    return 'DocuVault took too long to respond. Check the connection and try again.';
+  }
+  if (!error.response) {
+    return 'Could not reach DocuVault. Check that the API is running and reachable at the URL in mobile/.env.';
+  }
+  return 'DocuVault could not complete the request. Try again.';
+}
 
 export function multipart(file: DocumentPickerAsset, fields: Record<string, string> = {}) {
   const data = new FormData();
@@ -73,8 +90,12 @@ export type Document = {
   id: string; title: string; description: string; folder: string; classification: typeof classifications[number];
   departmentId: string | null; createdAt: string; ownerId: string; version: Version; allowed: Action[];
 };
-export type Grant = { kind: 'role' | 'employee' | 'department'; targetId: string; action: Action; effect: 'allow' | 'deny' };
+export type Grant = { kind: 'role' | 'employee' | 'department'; targetId: string; action: Action; effect: 'allow' | 'deny'; recipientName?: string };
 export type Audit = { sequence: number; action: string; employeeId: string; timestamp: string; documentId: string | null; details: string; previousHash: string; hash: string };
+export type DocumentActivity = Pick<Audit, 'sequence' | 'action' | 'employeeId' | 'timestamp'> & {
+  employeeName: string | null;
+  documentName: string;
+};
 export type Notice = { id: string; message: string; read: boolean; createdAt: string };
 export type AccessRequest = {
   id: string; documentId: string; status: string; canResolve: boolean; title?: string;

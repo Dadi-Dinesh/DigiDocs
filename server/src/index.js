@@ -10,6 +10,12 @@ if (!process.env.DATABASE_URL || (process.env.JWT_SECRET?.length ?? 0) < 32) {
   throw new Error('Set DATABASE_URL and a random JWT_SECRET of at least 32 characters.');
 }
 
+const host = '0.0.0.0';
+const port = Number(process.env.PORT ?? 4000);
+if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  throw new Error('PORT must be a whole number from 1 to 65535.');
+}
+
 const app = express();
 app.disable('x-powered-by');
 app.use(helmet());
@@ -26,6 +32,9 @@ app.use('/api/auth', auth);
 app.use('/api', authenticate, organization, documents);
 app.use((_req, res) => res.status(404).json({ error: 'Endpoint not found.' }));
 app.use((error, _req, res, _next) => {
+  if (error.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Request body must be valid JSON.' });
+  }
   if (error instanceof ZodError) {
     return res.status(400).json({ error: error.issues.map(issue => issue.path.join('.') + ': ' + issue.message).join(' · ') });
   }
@@ -37,8 +46,17 @@ app.use((error, _req, res, _next) => {
   if (status === 500) console.error('Request failed', error.code ?? error.name);
   res.status(status).json({ error: status === 500 ? 'The server could not complete the request.' : error.message });
 });
-const listener = app.listen(Number(process.env.PORT ?? 4000), '0.0.0.0', () => {
-  console.log('DocuVault API on port ' + listener.address().port);
+const listener = app.listen(port, host);
+listener.once('listening', () => {
+  console.log(`DocuVault API listening on ${host}:${port}`);
+});
+listener.once('error', async error => {
+  console.error(`DocuVault could not listen on ${host}:${port}.`, error);
+  if (error.code === 'EADDRINUSE') {
+    console.error('The port is already in use. Use the running API, stop it, or choose a different PORT.');
+  }
+  process.exitCode = 1;
+  await db.$disconnect().catch(reason => console.error('Database cleanup failed:', reason.code ?? reason.name));
 });
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.once(signal, () => listener.close(() => db.$disconnect()));
