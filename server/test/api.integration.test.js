@@ -76,7 +76,7 @@ test('DocuVault API against an isolated test database', { skip: !origin }, async
   const search = async (token, term, filters = '') =>
     (await request('GET', '/documents?q=' + encodeURIComponent(term) + filters, { token })).map(item => item.id);
   assert.deepEqual(await request('GET', '/documents', { token: employee }), []);
-  assert.deepEqual(await search(employee, 'Records schedule'), []);
+  assert.deepEqual(await search(employee, 'Records schedule', '&fileType=pdf&uploadedWithin=7'), []);
   assert.deepEqual(await search(outsider, 'Records schedule'), []);
   await request('GET', path, { token: employee, status: 403 });
   await request('GET', path, { token: outsider, status: 404 });
@@ -108,6 +108,10 @@ test('DocuVault API against an isolated test database', { skip: !origin }, async
   }
   assert.deepEqual(await search(employee, 'Records schedule', '&mode=mine'), []);
   assert.deepEqual(await search(employee, 'Records schedule', '&classification=Public'), []);
+  assert.deepEqual(await search(employee, 'Records schedule', '&classification=Internal&fileType=pdf&uploadedWithin=7'), [doc.id]);
+  assert.deepEqual(await search(employee, 'Records schedule', '&fileType=jpg&uploadedWithin=30'), []);
+  await request('GET', '/documents?uploadedWithin=999', { token: employee, status: 400 });
+  await request('GET', '/documents?fileType=zip', { token: employee, status: 400 });
   assert.deepEqual(await search(employee, 'no such document'), []);
   assert.deepEqual(await search(employee, ''), [doc.id]);
   assert.equal((await request('GET', '/dashboard', { token: employee })).accessible, 1);

@@ -13,6 +13,14 @@ const kinds = [{ id: 'role', name: 'Roles' }, { id: 'department', name: 'Departm
 const modes = [{ id: 'all', name: 'All' }, { id: 'mine', name: 'My documents' }, { id: 'shared', name: 'Shared with me' }] as const;
 const mimeTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'image/jpeg', 'image/png'];
 
+const fileTypes = ['PDF', 'DOCX', 'XLSX', 'JPG', 'PNG'];
+const uploadDates = [
+  { id: '', name: 'Any time' },
+  { id: '7', name: 'Last 7 days' },
+  { id: '30', name: 'Last 30 days' },
+  { id: '90', name: 'Last 90 days' },
+];
+
 async function pickFile() {
   const picked = await Picker.getDocumentAsync({ type: mimeTypes, copyToCacheDirectory: true });
   const file = picked.assets?.[0];
@@ -48,9 +56,18 @@ export function DocumentList({ mode: initial = 'all', sensitive = false }: Parti
   const [mode, setMode] = useState(initial);
   const [query, setQuery] = useState('');
   const [classification, setClassification] = useState<string>(sensitive ? 'sensitive' : '');
+  const [fileType, setFileType] = useState('');
+  const [uploadedWithin, setUploadedWithin] = useState('');
   const nav = useNav();
   const term = query.trim();
-  const feed = useLoad<Document[]>('/documents?mode=' + mode + '&q=' + encodeURIComponent(term) + '&classification=' + classification);
+  const params = new URLSearchParams({ mode, q: term, classification, fileType, uploadedWithin });
+  const feed = useLoad<Document[]>('/documents?' + params.toString());
+  const hasFilters = Boolean(classification || fileType || uploadedWithin);
+  const resetFilters = () => {
+    setClassification('');
+    setFileType('');
+    setUploadedWithin('');
+  };
   const title = { all: 'All documents', mine: 'My documents', shared: 'Shared with me', manage: 'Manage access' }[mode];
   return <Screen title={title} subtitle="Browse your organization’s vault" refresh={feed.reload}>
     <Field label="Search documents" placeholder="Title, file name, or description" value={query}
@@ -59,13 +76,24 @@ export function DocumentList({ mode: initial = 'all', sensitive = false }: Parti
       <Button title="Clear search" icon="close-outline" secondary onPress={() => setQuery('')} />
     </View>}
     {initial !== 'manage' && <Choices label="Document scope" options={modes} value={mode} select={setMode} />}
-    <Choices label="Classification filter" options={[{ id: '', name: 'Any' }, { id: 'sensitive', name: 'Confidential or restricted' }, ...classifications.map(id => ({ id, name: id }))]} value={classification} select={setClassification} />
+    <View style={s.panel}>
+      <Choices label="Classification" options={[
+        { id: '', name: 'Any' },
+        ...classifications.map(id => ({ id, name: id })),
+        { id: 'sensitive', name: 'Confidential or restricted' },
+      ]} value={classification} select={setClassification} />
+      <Choices label="File type" options={[{ id: '', name: 'Any' }, ...fileTypes.map(name => ({ id: name.toLowerCase(), name }))]}
+        value={fileType} select={setFileType} />
+      <Choices label="Latest upload date" options={uploadDates} value={uploadedWithin} select={setUploadedWithin} />
+      <Button title="Reset Filters" secondary disabled={!hasFilters} onPress={resetFilters} />
+    </View>
     <Status {...feed} retry={feed.reload} />
     {feed.data?.length === 0 && <View style={s.panel}>
       <Icon name={term ? 'search-outline' : 'folder-open-outline'} color="#A5B4FC" />
-      <Text style={s.section}>{term ? 'No matching documents' : 'No documents to show'}</Text>
+      <Text style={s.section}>{term || hasFilters ? 'No matching documents' : 'No documents to show'}</Text>
       <Text style={s.muted}>{term ? 'Try a different title, file name, or description. You can also clear your search or adjust the filters.' :
-        'Documents you have access to will appear here. Try a different filter to see more.'}</Text>
+        hasFilters ? 'Try adjusting or resetting your filters to see more documents.' :
+        'Documents you have access to will appear here.'}</Text>
     </View>}
     {feed.data?.map(doc => <DocumentCard key={doc.id} doc={doc} open={() => nav.navigate(mode === 'manage' ? 'Access' : 'Details', { id: doc.id })} />)}
   </Screen>;

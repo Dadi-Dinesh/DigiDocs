@@ -91,15 +91,28 @@ documents.get('/folders', endpoint(async (tx, req) => {
   const rows = await visibleDocuments(tx, req);
   return [...new Set(['General', ...rows.filter(doc => doc.allowed.includes('view')).map(doc => doc.folder)])].sort();
 }));
+const fileMime = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  jpg: 'image/jpeg',
+  png: 'image/png',
+};
+
 documents.get('/documents', endpoint(async (tx, req) => {
   const mode = z.enum(['all', 'mine', 'shared', 'manage']).default('all').parse(req.query.mode);
   const term = z.string().trim().max(160).default('').parse(req.query.q).toLowerCase();
   const filter = z.enum(['', 'sensitive', ...classifications]).default('').parse(req.query.classification);
+  const fileType = z.enum(['', ...Object.keys(fileMime)]).default('').parse(req.query.fileType);
+  const days = z.enum(['', '7', '30', '90']).default('').parse(req.query.uploadedWithin);
+  const cutoff = days ? new Date(Date.now() - Number(days) * 86_400_000) : null;
   return (await visibleDocuments(tx, req)).filter(doc =>
     (!filter || (filter === 'sensitive' ? ['Confidential', 'Restricted'].includes(doc.classification) : doc.classification === filter)) &&
     doc.allowed.includes(mode === 'manage' ? 'manageAccess' : 'view') &&
     (mode !== 'mine' || doc.ownerId === req.user.id) &&
     (mode !== 'shared' || doc.ownerId !== req.user.id) &&
+    (!fileType || doc.version.mime === fileMime[fileType]) &&
+    (!cutoff || doc.version.createdAt >= cutoff) &&
     (!term || [doc.title, doc.version.fileName, doc.description, doc.folder, doc.classification]
       .some(value => value.toLowerCase().includes(term)))
   );
