@@ -1,0 +1,117 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated"
+}
+datasource db {
+  provider = "postgresql"
+}
+model Organization {
+  id          String @id @default(uuid())
+  slug        String @unique
+  name        String
+  description String @default("")
+}
+model Employee {
+  id             String @id @default(uuid())
+  organizationId String
+  employeeId     String
+  email          String
+  fullName       String
+  designation    String
+  departmentId   String?
+  roleId         String?
+  admin          Boolean @default(false)
+  active         Boolean @default(true)
+  passwordHash   String
+  joiningDate    DateTime @default(now())
+  @@unique([organizationId, employeeId])
+  @@unique([organizationId, email])
+}
+model Role {
+  id             String @id @default(uuid())
+  organizationId String
+  name           String
+  permissions    String[]
+  @@unique([organizationId, name])
+}
+model Department {
+  id             String @id @default(uuid())
+  organizationId String
+  name           String
+  @@unique([organizationId, name])
+}
+model Session {
+  id         String @id
+  employeeId String
+  expiresAt  DateTime
+  @@index([employeeId])
+}
+model Document {
+  id             String @id @default(uuid())
+  organizationId String
+  ownerId        String
+  departmentId   String?
+  title          String
+  description    String
+  folder         String
+  classification String
+  createdAt      DateTime @default(now())
+  deletedAt      DateTime?
+  versions       Version[]
+  grants         Grant[]
+  @@index([organizationId, deletedAt, createdAt])
+}
+model Version {
+  documentId String
+  number     Int
+  document   Document @relation(fields: [documentId], references: [id])
+  uploaderId String
+  fileName   String
+  size       Int
+  mime       String
+  sha256     String
+  storageKey String
+  createdAt  DateTime @default(now())
+  @@id([documentId, number])
+}
+model Grant {
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id])
+  kind       String
+  targetId   String
+  action     String
+  effect     String
+  @@id([documentId, kind, targetId, action])
+}
+model Audit {
+  organizationId String
+  sequence       Int
+  userId         String
+  employeeId     String
+  documentId     String?
+  action         String
+  timestamp      DateTime
+  details        String
+  previousHash   String
+  hash           String
+  @@id([organizationId, sequence])
+}
+model AccessRequest {
+  id             String @id @default(uuid())
+  organizationId String
+  documentId     String
+  employeeId     String
+  status         String @default("pending")
+  createdAt      DateTime @default(now())
+  @@unique([documentId, employeeId])
+  @@index([organizationId, status])
+}
+model Notification {
+  id             String @id @default(uuid())
+  organizationId String
+  employeeId     String
+  message        String
+  read           Boolean @default(false)
+  createdAt      DateTime @default(now())
+  @@index([organizationId, employeeId, createdAt])
+}

@@ -1,0 +1,19 @@
+{
+  "name": "docuvault",
+  "private": true,
+  "workspaces": [
+    "server",
+    "mobile"
+  ],
+  "scripts": {
+    "api": "npm run dev -w server",
+    "mobile": "npm run start -w mobile",
+    "check": "npm run check --workspaces"
+  },
+  "overrides": {
+    "effect": "3.22.5",
+    "@expo/fingerprint": {
+      "minimatch": "11.0.1"
+    }
+  }
+}

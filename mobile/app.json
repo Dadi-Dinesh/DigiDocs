@@ -1,0 +1,1 @@
+{"expo":{"name":"DocuVault","slug":"docuvault","version":"1.0.0","userInterfaceStyle":"dark","ios":{"bundleIdentifier":"com.docuvault.mobile"},"android":{"package":"com.docuvault.mobile"},"plugins":["expo-secure-store"]}}
