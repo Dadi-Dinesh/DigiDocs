@@ -38,7 +38,7 @@ Register your organization and save its code. In **Profile**, create a departmen
 4. Other members need an applicable allow. Public and Internal support employee, role, and department allows. Confidential supports employee and role allows. Restricted requires an individual employee allow. Every classification remains organization-scoped.
 5. Grants are live. Revoking a rule, changing a role permission, or deactivating a member takes effect on subsequent requests. Grant edits use an optimistic comparison so an old form cannot silently overwrite newer rules.
 
-View allows in-app previews and access to the document's details and version history. PDFs and images are rendered as page images. Word files and spreadsheets have a paginated text preview that omits original layout and formatting. Download authorizes export of the original file. An employee can request view access using a document ID shared by a manager.
+View allows in-app previews and access to the document's details and version history. PDF, JPG, and PNG files are rendered in the app. Word files and spreadsheets can be opened separately after an authorized download. Download authorizes export of the original file. An employee can request view access using a document ID shared by a manager.
 
 ## Storage and audit
 

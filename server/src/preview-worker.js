@@ -1,7 +1,6 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { PDFiumLibrary } from '@hyzyla/pdfium';
 import sharp from 'sharp';
-import { previewOffice } from './office.js';
 
 const { mime, page } = workerData;
 const bytes = Buffer.from(workerData.bytes);
@@ -39,7 +38,7 @@ async function preview() {
       .resize({ width: dimension, height: dimension, fit: 'inside', withoutEnlargement: true }).png().toBuffer({ resolveWithObject: true });
     return { kind: 'image', page, pages: 1, width: info.width, height: info.height, data: data.toString('base64') };
   }
-  return previewOffice(bytes, mime, page);
+  throw new Error('Unsupported preview format.');
 }
 
 try {

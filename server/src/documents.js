@@ -172,6 +172,9 @@ documents.get('/documents/:id/versions/:number/verify', endpoint(async (tx, req)
 documents.get('/documents/:id/versions/:number/preview/:page', endpoint(async (tx, req) => {
   const doc = await authorized(tx, req, 'view');
   const version = await findVersion(tx, req, doc);
+  if (!['application/pdf', 'image/png', 'image/jpeg'].includes(version.mime)) {
+    throw fail(415, 'In-app previews are available for PDF, JPG, and PNG files. Download this file to open it if you have download permission.');
+  }
   const page = z.coerce.number().int().positive().max(100000).parse(req.params.page);
   const bytes = await storage.read(version.storageKey);
   if (sha256(bytes) !== version.sha256) throw fail(409, 'Stored file integrity verification failed.');

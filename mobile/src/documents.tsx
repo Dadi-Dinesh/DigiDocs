@@ -194,7 +194,7 @@ export function DetailsScreen({ route, navigation }: NativeStackScreenProps<Rout
         {doc.allowed.map(action => <Text key={action} style={s.badge}>{actionLabel[action]}</Text>)}
       </View></View>
       {!!mutation.error && <Text style={s.error}>{mutation.error}</Text>}
-      <Button title="Preview document" icon="eye-outline" onPress={() => navigation.navigate('Preview', { id, number: doc.version.number, fileName: doc.version.fileName })} />
+      <Button title="Preview document" icon="eye-outline" onPress={() => navigation.navigate('Preview', { id, number: doc.version.number, fileName: doc.version.fileName, mime: doc.version.mime, canDownload: doc.allowed.includes('download') })} />
       {doc.allowed.includes('download') && <Button title={mutation.busy ? 'Working…' : 'Download file'} disabled={mutation.busy} icon="download-outline" onPress={() => void mutation.run(() => download(id, doc.version))} />}
       <Button secondary title="Version history" icon="layers-outline" onPress={() => navigation.navigate('Versions', { id, download: doc.allowed.includes('download'), edit: doc.allowed.includes('edit') })} />
       <Button secondary title="Verify SHA-256" icon="shield-checkmark-outline" onPress={() => navigation.navigate('Verify', { id, number: doc.version.number })} />
@@ -299,7 +299,7 @@ export function VersionsScreen({ route, navigation }: NativeStackScreenProps<Rou
       <Text style={s.badge}>Version {version.number}</Text><Text style={s.section}>{version.fileName}</Text>
       <Text style={s.muted}>{date(version.createdAt)} · {size(version.size)} · {version.uploader ?? 'Uploader unavailable'}</Text>
       <Text selectable style={s.mono}>{version.sha256}</Text>
-      <Button secondary title="Preview version" onPress={() => navigation.navigate('Preview', { id, number: version.number, fileName: version.fileName })} />
+      <Button secondary title="Preview version" onPress={() => navigation.navigate('Preview', { id, number: version.number, fileName: version.fileName, mime: version.mime, canDownload })} />
       <Button secondary title="Verify fingerprint" onPress={() => navigation.navigate('Verify', { id, number: version.number })} />
       {canDownload && <Button secondary title="Download version" disabled={mutation.busy} onPress={() => void mutation.run(() => download(id, version))} />}
     </View>)}
@@ -326,27 +326,26 @@ export function VerifyScreen({ route }: NativeStackScreenProps<Routes, 'Verify'>
   </Screen>;
 }
 
-type Preview = { page: number; pages: number } & (
-  { kind: 'image'; data: string; width: number; height: number } |
-  { kind: 'text'; lines: string[]; truncated: boolean }
-);
+type Preview = { pages: number; data: string; width: number; height: number };
+
 export function PreviewScreen({ route }: NativeStackScreenProps<Routes, 'Preview'>) {
-  const { id, number, fileName } = route.params;
+  const { id, number, fileName, mime, canDownload } = route.params;
   const [page, setPage] = useState(1);
-  const feed = useLoad<Preview>('/documents/' + id + '/versions/' + number + '/preview/' + page);
+  const supported = ['application/pdf', 'image/png', 'image/jpeg'].includes(mime);
+  const feed = useLoad<Preview>(supported ? '/documents/' + id + '/versions/' + number + '/preview/' + page : null);
   const preview = feed.data;
   return <Screen title="Document preview" subtitle={fileName + ' · Version ' + number}>
+    {!supported && <View style={s.panel}>
+      <Icon name="document-outline" color="#A5B4FC" size={30} />
+      <Text style={s.section}>Preview unavailable</Text>
+      <Text style={s.muted}>You can preview PDF, JPG, and PNG files in DocuVault.</Text>
+      {canDownload && <Text style={s.muted}>Go back to download this file and open it in another app.</Text>}
+    </View>}
     <Status {...feed} retry={feed.reload} />
     {preview && <>
-      {preview.kind === 'image' ? <Image accessibilityLabel={'Preview page ' + page}
+      <Image accessibilityLabel={'Preview page ' + page}
         source={{ uri: 'data:image/png;base64,' + preview.data }}
-        style={{ width: '100%', aspectRatio: preview.width / preview.height, backgroundColor: c.card }} resizeMode="contain" /> :
-        <View style={s.panel}>
-          <Text style={s.label}>Text preview</Text>
-          {preview.lines.length ? preview.lines.map((line, index) => <Text selectable key={index} style={s.text}>{line || ' '}</Text>) :
-            <Text style={s.muted}>No text is available on this page.</Text>}
-          {preview.truncated && <Text style={s.muted}>Long lines have been shortened.</Text>}
-        </View>}
+        style={{ width: '100%', aspectRatio: preview.width / preview.height, backgroundColor: c.card }} resizeMode="contain" />
       <Text style={s.muted}>Page {page} of {preview.pages}</Text>
       {preview.pages > 1 && <View style={s.row}>
         <View style={s.fill}><Button secondary title="Previous" disabled={page <= 1} onPress={() => setPage(page - 1)} /></View>

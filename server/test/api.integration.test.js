@@ -133,6 +133,9 @@ test('DocuVault API against an isolated test database', { skip: !origin }, async
   await request('GET', path + '/download', { token: employee, status: 403 });
   const preview = await request('GET', path + '/versions/1/preview/1', { token: employee });
   assert.equal(preview.kind, 'image');
+  assert.deepEqual(Object.keys(preview).sort(), ['data', 'height', 'kind', 'page', 'pages', 'width']);
+  await request('GET', path + '/versions/1/preview/1', { status: 401 });
+  await request('GET', path + '/versions/1/preview/1', { token: outsider, status: 404 });
   assert.equal(preview.pages, 1);
   assert.equal(Buffer.from(preview.data, 'base64').subarray(1, 4).toString(), 'PNG');
   await request('PATCH', path, { token: admin, data: { classification: 'Restricted' } });
@@ -170,9 +173,10 @@ test('DocuVault API against an isolated test database', { skip: !origin }, async
       await sharp({ create: { width: 16, height: 16, channels: 3, background: '#6475F5' } })
         .toFormat(extension === 'jpg' ? 'jpeg' : 'png').toBuffer();
     const doc = await request('POST', '/documents', { token: admin, data: fileForm(bytes, fields, name) });
-    const result = await request('GET', '/documents/' + doc.id + '/versions/1/preview/1', { token: admin });
-    assert.equal(result.kind, text ? 'text' : 'image');
-    if (text) assert.match(result.lines.join('\n'), /DocuVault preview/);
+    const previewPath = '/documents/' + doc.id + '/versions/1/preview/1';
+    const result = await request('GET', previewPath, { token: admin, status: text ? 415 : 200 });
+    if (text) assert.match(result.error, /PDF, JPG, and PNG/);
+    else assert.equal(result.kind, 'image');
   }
 
   await request('DELETE', path, { token: admin });

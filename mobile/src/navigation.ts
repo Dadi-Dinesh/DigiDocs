@@ -12,7 +12,7 @@ export type Routes = {
   Details: { id: string };
   Access: { id: string };
   Versions: { id: string; download: boolean; edit: boolean };
-  Preview: { id: string; number: number; fileName: string };
+  Preview: { id: string; number: number; fileName: string; mime: string; canDownload: boolean };
   Verify: { id: string; number: number };
   Edit: { id: string };
   Employees: undefined;
